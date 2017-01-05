@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
       <module fileurl="file://$PROJECT_DIR$/ar_game_client.iml" filepath="$PROJECT_DIR$/ar_game_client.iml" />
+      <module fileurl="file://$PROJECT_DIR$/vision/vision.iml" filepath="$PROJECT_DIR$/vision/vision.iml" />
     </modules>
   </component>
 </project>
