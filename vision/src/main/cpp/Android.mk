@@ -1,6 +1,7 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
+# Set up for OpenCV
 #OPENCV_CAMERA_MODULES := off
 OPENCV_INSTALL_MODULES := off
 OPENCV_LIB_TYPE := STATIC
@@ -9,8 +10,45 @@ OPENCV_ANDROID_SDK := ${LOCAL_PATH}/../../../../OpenCV-android-sdk
 
 include ${OPENCV_ANDROID_SDK}/sdk/native/jni/OpenCV.mk
 
+DLIB_SDK_PATH := ${LOCAL_PATH}/../../../../dlib
+LOCAL_C_INCLUDES += ${DLIB_SDK_PATH}
+
+# ADD DLIB
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/base64/base64_kernel_1.cpp \
+
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/bigint/bigint_kernel_1.cpp \
+    ${DLIB_SDK_PATH}/dlib/bigint/bigint_kernel_2.cpp \
+
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/bit_stream/bit_stream_kernel_1.cpp \
+
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/entropy_decoder/entropy_decoder_kernel_1.cpp \
+    ${DLIB_SDK_PATH}/dlib/entropy_decoder/entropy_decoder_kernel_2.cpp \
+    ${DLIB_SDK_PATH}/dlib/entropy_encoder/entropy_encoder_kernel_1.cpp \
+    ${DLIB_SDK_PATH}/dlib/entropy_encoder/entropy_encoder_kernel_2.cpp \
+
+
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/threads/multithreaded_object_extension.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/threaded_object_extension.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/threads_kernel_1.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/threads_kernel_2.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/threads_kernel_shared.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/thread_pool_extension.cpp \
+    ${DLIB_SDK_PATH}/dlib/threads/async.cpp. \
+
+
+LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/dnn/cpu_dlib.cpp.\
+    ${DLIB_SDK_PATH}/dlib/dnn/tensor_tools.cpp.\
+
+
 LOCAL_MODULE := face_analysis
 
-LOCAL_SRC_FILES := FaceAnalysis_jni.cpp
-LOCAL_LDLIBS += -llog -ldl
+LOCAL_SRC_FILES += FaceAnalysis_jni.cpp
+LOCAL_LDLIBS += -llog -ldl -ljnigraphics
+
 include $(BUILD_SHARED_LIBRARY)
