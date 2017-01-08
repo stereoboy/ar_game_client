@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -88,7 +90,7 @@ public class CameraViewFragment extends Fragment {
     FaceAnalysis mFaceAnalysis = null;
 
     private final static String TAG = "SimpleCamera";
-    private TextureView mTextureView = null;
+    private AutoFitTextureView mTextureView = null;
     private ImageView mInfoView = null;
     private TextureView.SurfaceTextureListener mSurfaceTextureListener = new TextureView.SurfaceTextureListener() {
 
@@ -128,6 +130,7 @@ public class CameraViewFragment extends Fragment {
     private Size mPreviewSize = null;
     private CameraDevice mCameraDevice = null;
     private Semaphore mCameraOpenCloseLock = new Semaphore(1);
+    private Rect mActiveArraySize;
 
     private void openCamera(int width, int height)
     {
@@ -142,20 +145,61 @@ public class CameraViewFragment extends Fragment {
                     StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
                     mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
                 }*/
-            String cameraId = manager.getCameraIdList()[0];
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
-            try {
-                if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
-                    throw new RuntimeException("Time out waiting to lock camera opening.");
+            for (String cameraID : manager.getCameraIdList()) {
+                Log.e(TAG, "cameraID: "+ cameraID);
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+
+                // Check Facing
+                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                Log.e(TAG, "facing: " + facing);
+
+                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                if (map == null) {
+                    continue;
                 }
-                manager.openCamera(cameraId, mStateCallback, null);
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Interrupted while trying to lock camera opening.", e);
+
+                int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                Log.e(TAG, "CameraOrientation: " + sensorOrientation);
             }
+
+            for (String cameraID : manager.getCameraIdList()) {
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+
+                // Check Facing
+                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                    continue;
+                }
+
+                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                if (map == null) {
+                    continue;
+                }
+
+
+                int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                if (sensorOrientation == 270)
+                {
+
+                }
+
+                mActiveArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
+                mTextureView.setAspectRatio(
+                        mPreviewSize.getHeight(), mPreviewSize.getWidth());
+                try {
+                    if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
+                        throw new RuntimeException("Time out waiting to lock camera opening.");
+                    }
+                    manager.openCamera(cameraID, mStateCallback, null);
+                } catch (CameraAccessException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException("Interrupted while trying to lock camera opening.", e);
+                }
+                break;
+            }
+
         }
         catch(SecurityException e) {
             e.printStackTrace();
@@ -260,9 +304,11 @@ public class CameraViewFragment extends Fragment {
             mCaptureSession = session;
 
             mPreviewBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+            mPreviewBuilder.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE);
 
             try {
-                mCaptureSession.setRepeatingRequest(mPreviewBuilder.build(), null, mBackgroundHandler);
+                mCaptureSession.setRepeatingRequest(mPreviewBuilder.build(), mPreviewCaptureCallback, mBackgroundHandler);
+                //mCaptureSession.setRepeatingRequest(mPreviewBuilder.build(), null, mBackgroundHandler);
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
@@ -275,6 +321,7 @@ public class CameraViewFragment extends Fragment {
         }
     };
 
+    Face[] mFaces = null;
     private CameraCaptureSession.CaptureCallback mPreviewCaptureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
         public void onCaptureProgressed(CameraCaptureSession session, CaptureRequest request, CaptureResult partialResult) {
@@ -287,38 +334,96 @@ public class CameraViewFragment extends Fragment {
             Integer mode = result.get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
             Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if(faces != null && mode != null)
-                Log.e("tag", "faces : " + faces.length + " , mode : " + mode );
+            {
+                Log.e(TAG, "faces : " + faces.length + " , mode : " + mode );
+                for (int i = 0; i < faces.length; i++)
+                {
+                    Rect face = faces[i].getBounds();
+                    Log.e(TAG, "ActiveArraySize: (" + mActiveArraySize.left + "," + mActiveArraySize.top + "," + mActiveArraySize.width() + "," + mActiveArraySize.height() + ")");
+                    Log.e(TAG, "face[" + i + "] (" + face.left + "," + face.top + "," + face.width() + ", " + face.height() +")" );
+                }
+            }
+            mFaces = faces;
         }
     };
 
-    private ImageView mImageView = null;
     private ImageReader mImageReader = null;
+    private int align(int x)
+    {
+        return (x + 4 - (x%4));
+    }
     private ImageReader.OnImageAvailableListener mReaderListener = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(ImageReader imageReader) {
             Log.i(TAG, "onImageAvailable()");
+
             Image image = imageReader.acquireLatestImage();
+            if (image == null)
+                return;
+
             try {
-                Image.Plane plane = image.getPlanes()[0];
-                int bpp = 4;
-                ByteBuffer buffer = plane.getBuffer();
-                buffer.rewind();
-                int width = buffer.capacity()/plane.getRowStride();
-                int height = plane.getRowStride()/4;
 
-                //byte[] bytes = new byte[buffer.remaining()];
-                Log.i(TAG, "buffer.remaining():" + buffer.remaining());
-                Log.i(TAG, "buffer.capacity():" + buffer.capacity());
-                //buffer.get(bytes);
+                if (mFaces != null && mFaces.length > 0 )
+                {
+                    Image.Plane plane = image.getPlanes()[0];
+                    int bpp = 4;
+                    ByteBuffer buffer = plane.getBuffer();
+                    buffer.rewind();
+                    int width = plane.getRowStride()/4;
+                    int height = buffer.capacity()/plane.getRowStride();
 
-                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                Log.i(TAG, "Bitmap: " + bitmap.getWidth() +"x" + bitmap.getHeight());
-                bitmap.copyPixelsFromBuffer(buffer);
-                //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    Rect face = mFaces[0].getBounds();
+                    int x = face.left*width/mActiveArraySize.width();
+                    int y = face.top*height/mActiveArraySize.height();
+                    int w = align(face.width()*width/mActiveArraySize.width());
+                    int h = face.height()*height/mActiveArraySize.height();
 
-                int[] arr = mFaceAnalysis.detect(bitmap);
-               // Log.i(TAG, "test : arr[10] = " + arr[10]);
+                    x -= w*0.1;
+                    y -= h*0.1;
+                    w = (int) (w*1.2);
+                    h = (int) (h*1.2);
 
+                    // Check margin for face point detection
+                    if (x >= 0 && y >= 0 && (x + w) < width && (y + h) < height)
+                    {
+                        Log.i(TAG, "(" + x + "," + y + "," + w + "," + h + ")");
+
+
+                        //byte[] bytes = new byte[buffer.remaining()];
+                        Log.i(TAG, "buffer.remaining():" + buffer.remaining());
+                        Log.i(TAG, "buffer.capacity():" + buffer.capacity());
+                        //buffer.get(bytes);
+
+                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                        Log.i(TAG, "Bitmap: " + bitmap.getWidth() +"x" + bitmap.getHeight());
+                        bitmap.copyPixelsFromBuffer(buffer);
+
+                        Bitmap face_bmp = Bitmap.createBitmap(bitmap, x, y, w, h);
+
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(90);
+                        final Bitmap face_bmp_rot = Bitmap.createBitmap(face_bmp, 0, 0, face_bmp.getWidth(), face_bmp.getHeight(), matrix, true);
+
+
+                        int[] arr = mFaceAnalysis.detect(bitmap);
+
+                        getActivity().runOnUiThread(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+
+                                        mInfoView.setImageBitmap(face_bmp_rot);
+                                    }
+                                }
+                        );
+                        //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+
+
+                        // Log.i(TAG, "test : arr[10] = " + arr[10]);
+                    }
+
+
+                }
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -359,7 +464,7 @@ public class CameraViewFragment extends Fragment {
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        mTextureView = (TextureView) view.findViewById(R.id.cameraView);
+        mTextureView = (AutoFitTextureView) view.findViewById(R.id.cameraView);
         mInfoView = (ImageView) view.findViewById(R.id.infoView);
     }
 
