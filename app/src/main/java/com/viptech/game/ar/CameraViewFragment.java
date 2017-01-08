@@ -13,6 +13,9 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.Face;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
@@ -37,6 +40,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import android.widget.ImageView;
 
@@ -58,14 +63,34 @@ public class CameraViewFragment extends Fragment {
     private String mParam1;
     private String mParam2;
 
+    private HandlerThread mBackgroundThread;
+    private Handler mBackgroundHandler;
+
+    private void startBackgroundThread() {
+        mBackgroundThread = new HandlerThread("CameraBackground");
+        mBackgroundThread.start();
+        mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
+    }
+
+    private void stopBackgroundThread() {
+        mBackgroundThread.quitSafely();
+        try {
+            mBackgroundThread.join();
+            mBackgroundThread = null;
+            mBackgroundHandler = null;
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
     private OnFragmentInteractionListener mListener;
 
     FaceAnalysis mFaceAnalysis = null;
 
     private final static String TAG = "SimpleCamera";
     private TextureView mTextureView = null;
-    private SurfaceView mSurfaceView = null;
-    private TextureView.SurfaceTextureListener mSurfaceTextureListner = new TextureView.SurfaceTextureListener() {
+    private ImageView mInfoView = null;
+    private TextureView.SurfaceTextureListener mSurfaceTextureListener = new TextureView.SurfaceTextureListener() {
 
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
@@ -78,7 +103,6 @@ public class CameraViewFragment extends Fragment {
                                                 int height) {
             // TODO Auto-generated method stub
             Log.i(TAG, "onSurfaceTextureSizeChanged()");
-
         }
 
         @Override
@@ -93,43 +117,88 @@ public class CameraViewFragment extends Fragment {
                                               int height) {
             // TODO Auto-generated method stub
             Log.i(TAG, "onSurfaceTextureAvailable()");
-            final Activity activity = getActivity();
-            final CameraManager manager = (CameraManager) activity.getSystemService(Context.CAMERA_SERVICE);
-            try{
-                String cameraId = manager.getCameraIdList()[0];
-                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
-
-                manager.openCamera(cameraId, mStateCallback, null);
-            }
-            catch(SecurityException e) {
-                e.printStackTrace();
-            }
-            catch(CameraAccessException e) {
-                e.printStackTrace();
-            }
-            finally {
-
-            }
-
-
+            openCamera(width, height);
         }
     };
 
     /*
         reference: https://inducesmile.com/android/android-camera2-api-example-tutorial/
+        reference: https://developer.android.com/samples/Camera2Basic/index.html
      */
     private Size mPreviewSize = null;
     private CameraDevice mCameraDevice = null;
+    private Semaphore mCameraOpenCloseLock = new Semaphore(1);
+
+    private void openCamera(int width, int height)
+    {
+        final Activity activity = getActivity();
+        final CameraManager manager = (CameraManager) activity.getSystemService(Context.CAMERA_SERVICE);
+        try{
+/*
+                String [] cameras = manager.getCameraIdList();
+                for (int i = 0; i < cameras.length; i++)
+                {
+                    CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameras[i]);
+                    StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                    mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
+                }*/
+            String cameraId = manager.getCameraIdList()[0];
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
+            try {
+                if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
+                    throw new RuntimeException("Time out waiting to lock camera opening.");
+                }
+                manager.openCamera(cameraId, mStateCallback, null);
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Interrupted while trying to lock camera opening.", e);
+            }
+        }
+        catch(SecurityException e) {
+            e.printStackTrace();
+        }
+        catch(CameraAccessException e) {
+            e.printStackTrace();
+        }
+        finally {
+
+        }
+    }
+
+    private void closeCamera() {
+        try {
+            mCameraOpenCloseLock.acquire();
+            if (null != mCaptureSession) {
+                mCaptureSession.close();
+                mCaptureSession = null;
+            }
+            if (null != mCameraDevice) {
+                mCameraDevice.close();
+                mCameraDevice = null;
+            }
+            if (null != mImageReader) {
+                mImageReader.close();
+                mImageReader = null;
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException("Interrupted while trying to lock camera closing.", e);
+        } finally {
+            mCameraOpenCloseLock.release();
+        }
+    }
+
     private CaptureRequest.Builder mPreviewBuilder = null;
-    private CameraCaptureSession mPreviewSession = null;
+    private CameraCaptureSession mCaptureSession = null;
     private CameraDevice.StateCallback mStateCallback = new CameraDevice.StateCallback() {
 
         @Override
         public void onOpened(CameraDevice camera) {
             // TODO Auto-generated method stub
             Log.i(TAG, "onOpened");
+            mCameraOpenCloseLock.release();
             mCameraDevice = camera;
 
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
@@ -139,7 +208,10 @@ public class CameraViewFragment extends Fragment {
             }
 
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBA_8888, 1);
+            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBA_8888, 2);
+
+            mImageReader.setOnImageAvailableListener(mReaderListener, mBackgroundHandler);
+
             Surface surface = new Surface(texture);
 
             try {
@@ -166,14 +238,16 @@ public class CameraViewFragment extends Fragment {
         public void onError(CameraDevice camera, int error) {
             // TODO Auto-generated method stub
             Log.e(TAG, "onError");
-
+            mCameraOpenCloseLock.release();
+            closeCamera();
         }
 
         @Override
         public void onDisconnected(CameraDevice camera) {
             // TODO Auto-generated method stub
             Log.e(TAG, "onDisconnected");
-
+            mCameraOpenCloseLock.release();
+            closeCamera();
         }
     };
 
@@ -183,28 +257,37 @@ public class CameraViewFragment extends Fragment {
         public void onConfigured(CameraCaptureSession session) {
             // TODO Auto-generated method stub
             Log.i(TAG, "onConfigured");
-            mPreviewSession = session;
+            mCaptureSession = session;
 
             mPreviewBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
-            HandlerThread backgroundThread = new HandlerThread("CameraPreview");
-            backgroundThread.start();
-            Handler backgroundHandler = new Handler(backgroundThread.getLooper());
-
             try {
-                mPreviewSession.setRepeatingRequest(mPreviewBuilder.build(), null, backgroundHandler);
+                mCaptureSession.setRepeatingRequest(mPreviewBuilder.build(), null, mBackgroundHandler);
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
-
-            mImageReader.setOnImageAvailableListener(mReaderListener, backgroundHandler);
-
         }
 
         @Override
         public void onConfigureFailed(CameraCaptureSession session) {
             // TODO Auto-generated method stub
             Log.e(TAG, "CameraCaptureSession Configure failed");
+        }
+    };
+
+    private CameraCaptureSession.CaptureCallback mPreviewCaptureCallback = new CameraCaptureSession.CaptureCallback() {
+        @Override
+        public void onCaptureProgressed(CameraCaptureSession session, CaptureRequest request, CaptureResult partialResult) {
+            super.onCaptureProgressed(session, request, partialResult);
+        }
+
+        @Override
+        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+            super.onCaptureCompleted(session, request, result);
+            Integer mode = result.get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
+            Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
+            if(faces != null && mode != null)
+                Log.e("tag", "faces : " + faces.length + " , mode : " + mode );
         }
     };
 
@@ -233,9 +316,8 @@ public class CameraViewFragment extends Fragment {
                 bitmap.copyPixelsFromBuffer(buffer);
                 //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
 
-
                 int[] arr = mFaceAnalysis.detect(bitmap);
-                Log.i(TAG, "test : arr[10] = " + arr[10]);
+               // Log.i(TAG, "test : arr[10] = " + arr[10]);
 
 
             } catch (Exception e) {
@@ -278,8 +360,7 @@ public class CameraViewFragment extends Fragment {
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         mTextureView = (TextureView) view.findViewById(R.id.cameraView);
-        mTextureView.setSurfaceTextureListener(mSurfaceTextureListner);
-        mSurfaceView = (SurfaceView) view.findViewById(R.id.infoView);
+        mInfoView = (ImageView) view.findViewById(R.id.infoView);
     }
 
     @Override
@@ -302,21 +383,26 @@ public class CameraViewFragment extends Fragment {
     @Override
     public void onStop() {
         super.onStop();
-
-        if (mCameraDevice != null)
-        {
-            mCameraDevice.close();
-            mCameraDevice = null;
-        }
     }
 
     @Override
     public void onResume() {
+        Log.i(TAG, "onResume()");
         super.onResume();
+        startBackgroundThread();
+
+        if (mTextureView.isAvailable()) {
+            openCamera(mTextureView.getWidth(), mTextureView.getHeight());
+        } else {
+            mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
+        }
     }
 
     @Override
     public void onPause() {
+        Log.i(TAG, "onPause()");
+        closeCamera();
+        stopBackgroundThread();
         super.onPause();
     }
 
