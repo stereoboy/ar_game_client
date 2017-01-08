@@ -11,7 +11,7 @@ extern "C" {
 
 #undef JNI_PREFIX
 #define JNI_PREFIX(name) Java_com_viptech_game_vision_FaceAnalysis_##name
-JNIEXPORT jlong JNICALL JNI_PREFIX(nativeCreateObject)(JNIEnv *, jclass, jstring, jint);
+JNIEXPORT jlong JNICALL JNI_PREFIX(nativeCreateObject)(JNIEnv *env, jclass, jobject assetManager, jint);
 
 JNIEXPORT void JNICALL JNI_PREFIX(nativeDestroyObject)(JNIEnv *, jclass, jlong);
 

@@ -1,5 +1,6 @@
 package com.viptech.game.vision;
 
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 
 /**
@@ -10,8 +11,8 @@ public class FaceAnalysis {
     static {
         System.loadLibrary("face_analysis");
     }
-    public FaceAnalysis(String datapath, int minFaceSize) {
-        mNativeObj = nativeCreateObject(datapath, minFaceSize);
+    public FaceAnalysis(AssetManager assetManager, int minFaceSize) {
+        mNativeObj = nativeCreateObject(assetManager, minFaceSize);
     }
 
     public void start() {
@@ -43,7 +44,7 @@ public class FaceAnalysis {
 
     private long mNativeObj = 0;
 
-    private static native long nativeCreateObject(String datapath, int minFaceSize);
+    private static native long nativeCreateObject(AssetManager assetManager, int minFaceSize);
     private static native void nativeDestroyObject(long thiz);
     private static native void nativeStart(long thiz);
     private static native void nativeStop(long thiz);

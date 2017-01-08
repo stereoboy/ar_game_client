@@ -2,13 +2,15 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
 # Set up for OpenCV
-#OPENCV_CAMERA_MODULES := off
-OPENCV_INSTALL_MODULES := off
+OPENCV_CAMERA_MODULES := off
+#OPENCV_INSTALL_MODULES := off
 OPENCV_LIB_TYPE := STATIC
 
 OPENCV_ANDROID_SDK := ${LOCAL_PATH}/../../../../OpenCV-android-sdk
 
 include ${OPENCV_ANDROID_SDK}/sdk/native/jni/OpenCV.mk
+
+LOCAL_C_INCLUDES += ${OPENCV_ANDROID_SDK}/sdk/native/jni/include
 
 DLIB_SDK_PATH := ${LOCAL_PATH}/../../../../dlib
 LOCAL_C_INCLUDES += ${DLIB_SDK_PATH}
@@ -49,6 +51,6 @@ LOCAL_SRC_FILES += \
 LOCAL_MODULE := face_analysis
 
 LOCAL_SRC_FILES += FaceAnalysis_jni.cpp
-LOCAL_LDLIBS += -llog -ldl -ljnigraphics
+LOCAL_LDLIBS += -llog -ldl -ljnigraphics -landroid
 
 include $(BUILD_SHARED_LIBRARY)
