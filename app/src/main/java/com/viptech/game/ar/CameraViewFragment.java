@@ -1,15 +1,10 @@
 package com.viptech.game.ar;
 
+import android.app.Activity;
 import android.content.Context;
-import android.net.Uri;
-import android.os.Bundle;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import java.util.Arrays;
-import android.view.TextureView;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -19,13 +14,31 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
-import android.view.Surface;
+import android.media.Image;
+import android.media.ImageReader;
+import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.text.style.BackgroundColorSpan;
+import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
 import android.util.Log;
 import android.util.Size;
-import android.app.Activity;
+import android.view.LayoutInflater;
+import android.view.Surface;
+import android.view.SurfaceView;
+import android.view.TextureView;
+import android.view.View;
+import android.view.ViewGroup;
+
+import com.viptech.game.vision.FaceAnalysis;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import android.widget.ImageView;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -47,15 +60,17 @@ public class CameraViewFragment extends Fragment {
 
     private OnFragmentInteractionListener mListener;
 
+    FaceAnalysis mFaceAnalysis = null;
+
     private final static String TAG = "SimpleCamera";
     private TextureView mTextureView = null;
+    private SurfaceView mSurfaceView = null;
     private TextureView.SurfaceTextureListener mSurfaceTextureListner = new TextureView.SurfaceTextureListener() {
 
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
             // TODO Auto-generated method stub
-            //Log.i(TAG, "onSurfaceTextureUpdated()");
-
+            Log.i(TAG, "onSurfaceTextureUpdated()");
         }
 
         @Override
@@ -101,6 +116,10 @@ public class CameraViewFragment extends Fragment {
 
         }
     };
+
+    /*
+        reference: https://inducesmile.com/android/android-camera2-api-example-tutorial/
+     */
     private Size mPreviewSize = null;
     private CameraDevice mCameraDevice = null;
     private CaptureRequest.Builder mPreviewBuilder = null;
@@ -120,6 +139,7 @@ public class CameraViewFragment extends Fragment {
             }
 
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBA_8888, 1);
             Surface surface = new Surface(texture);
 
             try {
@@ -129,9 +149,14 @@ public class CameraViewFragment extends Fragment {
             }
 
             mPreviewBuilder.addTarget(surface);
+            mPreviewBuilder.addTarget(mImageReader.getSurface());
+
+            List<Surface> outputSurfaces = new ArrayList<Surface>(2);
+            outputSurfaces.add(surface);
+            outputSurfaces.add(mImageReader.getSurface());
 
             try {
-                mCameraDevice.createCaptureSession(Arrays.asList(surface), mPreviewStateCallback, null);
+                mCameraDevice.createCaptureSession(outputSurfaces, mPreviewStateCallback, null);
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
@@ -151,6 +176,7 @@ public class CameraViewFragment extends Fragment {
 
         }
     };
+
     private CameraCaptureSession.StateCallback mPreviewStateCallback = new CameraCaptureSession.StateCallback() {
 
         @Override
@@ -171,6 +197,8 @@ public class CameraViewFragment extends Fragment {
                 e.printStackTrace();
             }
 
+            mImageReader.setOnImageAvailableListener(mReaderListener, backgroundHandler);
+
         }
 
         @Override
@@ -179,6 +207,46 @@ public class CameraViewFragment extends Fragment {
             Log.e(TAG, "CameraCaptureSession Configure failed");
         }
     };
+
+    private ImageView mImageView = null;
+    private ImageReader mImageReader = null;
+    private ImageReader.OnImageAvailableListener mReaderListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader imageReader) {
+            Log.i(TAG, "onImageAvailable()");
+            Image image = imageReader.acquireLatestImage();
+            try {
+                Image.Plane plane = image.getPlanes()[0];
+                int bpp = 4;
+                ByteBuffer buffer = plane.getBuffer();
+                buffer.rewind();
+                int width = buffer.capacity()/plane.getRowStride();
+                int height = plane.getRowStride()/4;
+
+                //byte[] bytes = new byte[buffer.remaining()];
+                Log.i(TAG, "buffer.remaining():" + buffer.remaining());
+                Log.i(TAG, "buffer.capacity():" + buffer.capacity());
+                //buffer.get(bytes);
+
+                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                Log.i(TAG, "Bitmap: " + bitmap.getWidth() +"x" + bitmap.getHeight());
+                bitmap.copyPixelsFromBuffer(buffer);
+                //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+
+
+                int[] arr = mFaceAnalysis.detect(bitmap);
+                Log.i(TAG, "test : arr[10] = " + arr[10]);
+
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            finally {
+                image.close();
+            }
+        }
+    };
+
     public CameraViewFragment() {
         // Required empty public constructor
     }
@@ -211,6 +279,7 @@ public class CameraViewFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
         mTextureView = (TextureView) view.findViewById(R.id.cameraView);
         mTextureView.setSurfaceTextureListener(mSurfaceTextureListner);
+        mSurfaceView = (SurfaceView) view.findViewById(R.id.infoView);
     }
 
     @Override
@@ -226,6 +295,8 @@ public class CameraViewFragment extends Fragment {
             mParam1 = getArguments().getString(ARG_PARAM1);
             mParam2 = getArguments().getString(ARG_PARAM2);
         }
+
+        this.mFaceAnalysis = new FaceAnalysis(getActivity().getAssets(), 1);
     }
 
     @Override

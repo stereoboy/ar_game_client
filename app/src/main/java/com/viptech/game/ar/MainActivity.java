@@ -1,8 +1,11 @@
 package com.viptech.game.ar;
 
+import android.app.ActionBar;
 import android.net.Uri;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.view.Window;
+import android.view.WindowManager;
 
 public class MainActivity extends AppCompatActivity implements CameraViewFragment.OnFragmentInteractionListener
 {
@@ -10,8 +13,14 @@ public class MainActivity extends AppCompatActivity implements CameraViewFragmen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
+        //requestWindowFeature(Window.FEATURE_NO_TITLE);
+        //getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+        setContentView(R.layout.activity_main);
+/*
+        getSupportActionBar().hide();
+        */
         // Check that the activity is using the layout version with
         // the fragment_container FrameLayout
         if (findViewById(R.id.main_view) != null) {
