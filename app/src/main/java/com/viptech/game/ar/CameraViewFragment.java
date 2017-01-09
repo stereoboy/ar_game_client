@@ -4,8 +4,12 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -131,6 +135,10 @@ public class CameraViewFragment extends Fragment {
     private CameraDevice mCameraDevice = null;
     private Semaphore mCameraOpenCloseLock = new Semaphore(1);
     private Rect mActiveArraySize;
+    private int mTargetFacing = CameraCharacteristics.LENS_FACING_FRONT;
+    private int mCameraRotation = 90;
+    //private Size mTargetSize = new Size(720, 480);
+    private Size mTargetSize = new Size(1280, 960);
 
     private void openCamera(int width, int height)
     {
@@ -158,6 +166,12 @@ public class CameraViewFragment extends Fragment {
                     continue;
                 }
 
+                Size [] sizes = map.getOutputSizes(SurfaceTexture.class);
+                for( Size size : sizes)
+                {
+                    Log.e(TAG, size.getWidth() + "x" + size.getHeight());
+                }
+
                 int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
                 Log.e(TAG, "CameraOrientation: " + sensorOrientation);
             }
@@ -167,8 +181,17 @@ public class CameraViewFragment extends Fragment {
 
                 // Check Facing
                 Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-                if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                if (facing != null && facing != mTargetFacing) {
                     continue;
+                }
+
+                if (mTargetFacing == CameraCharacteristics.LENS_FACING_BACK)
+                {
+                    mCameraRotation = 90;
+                }
+                else
+                {
+                    mCameraRotation = -90;
                 }
 
                 StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
@@ -183,8 +206,16 @@ public class CameraViewFragment extends Fragment {
 
                 }
 
+                for (Size size : map.getOutputSizes(SurfaceTexture.class))
+                {
+                    if (size.getWidth() <= mTargetSize.getWidth() && size.getHeight() <= mTargetSize.getHeight()) {
+                        mPreviewSize = size;
+                        Log.e(TAG, "Setup " + mPreviewSize.getWidth() + "x" + mPreviewSize.getHeight());
+                        break;
+                    }
+                }
+
                 mActiveArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-                mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
                 mTextureView.setAspectRatio(
                         mPreviewSize.getHeight(), mPreviewSize.getWidth());
                 try {
@@ -331,6 +362,7 @@ public class CameraViewFragment extends Fragment {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
+            result.getFrameNumber();
             Integer mode = result.get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
             Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if(faces != null && mode != null)
@@ -352,10 +384,12 @@ public class CameraViewFragment extends Fragment {
     {
         return (x + 4 - (x%4));
     }
+
     private ImageReader.OnImageAvailableListener mReaderListener = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(ImageReader imageReader) {
             Log.i(TAG, "onImageAvailable()");
+            final int INPUT_SIZE = 256;
 
             Image image = imageReader.acquireLatestImage();
             if (image == null)
@@ -378,10 +412,10 @@ public class CameraViewFragment extends Fragment {
                     int w = align(face.width()*width/mActiveArraySize.width());
                     int h = face.height()*height/mActiveArraySize.height();
 
-                    x -= w*0.1;
-                    y -= h*0.1;
-                    w = (int) (w*1.2);
-                    h = (int) (h*1.2);
+                    x -= w*0.4;
+                    y -= h*0.2;
+                    w = (int) (w*1.8);
+                    h = (int) (h*1.4);
 
                     // Check margin for face point detection
                     if (x >= 0 && y >= 0 && (x + w) < width && (y + h) < height)
@@ -401,11 +435,27 @@ public class CameraViewFragment extends Fragment {
                         Bitmap face_bmp = Bitmap.createBitmap(bitmap, x, y, w, h);
 
                         Matrix matrix = new Matrix();
-                        matrix.postRotate(90);
+                        matrix.postRotate(mCameraRotation);
+                        if (mTargetFacing == CameraCharacteristics.LENS_FACING_FRONT){
+                            matrix.postScale(-1, 1, h/2, w/2);
+                        }
                         final Bitmap face_bmp_rot = Bitmap.createBitmap(face_bmp, 0, 0, face_bmp.getWidth(), face_bmp.getHeight(), matrix, true);
 
 
-                        int[] arr = mFaceAnalysis.detect(bitmap);
+                        int[] arr = mFaceAnalysis.detect(face_bmp_rot);
+
+                        Canvas canvas = new Canvas(face_bmp_rot);
+                        Paint paint = new Paint();
+                        paint.setColor(Color.rgb(0, 255, 0));
+                        paint.setStrokeWidth(10);
+/*
+                        for (int i = 0; i < arr.length/2; i++)
+                        {
+                            Point point = new Point(arr[2*i], arr[2*i + 1]);
+                            //Log.e(TAG, "face_point[" + i + "]" + point.x + "," + point.y + ")");
+                            //canvas.drawPoint(point.x, point.y, paint);
+                        }
+*/
 
                         getActivity().runOnUiThread(
                                 new Runnable() {
@@ -418,12 +468,63 @@ public class CameraViewFragment extends Fragment {
                         );
                         //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
 
-
                         // Log.i(TAG, "test : arr[10] = " + arr[10]);
                     }
-
-
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            finally {
+                image.close();
+            }
+        }
+    };
+
+    private ImageReader.OnImageAvailableListener mReaderListener2 = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader imageReader) {
+            Log.i(TAG, "onImageAvailable()");
+
+            Log.e(TAG, "DETECT START\n");
+            Image image = imageReader.acquireLatestImage();
+            if (image == null)
+                return;
+
+            try {
+                    Image.Plane plane = image.getPlanes()[0];
+                    int bpp = 4;
+                    ByteBuffer buffer = plane.getBuffer();
+                    buffer.rewind();
+                    int width = plane.getRowStride()/4;
+                    int height = buffer.capacity()/plane.getRowStride();
+
+
+                    //byte[] bytes = new byte[buffer.remaining()];
+                    Log.i(TAG, "buffer.remaining():" + buffer.remaining());
+                    Log.i(TAG, "buffer.capacity():" + buffer.capacity());
+                    //buffer.get(bytes);
+
+                    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                    Log.i(TAG, "Bitmap: " + bitmap.getWidth() +"x" + bitmap.getHeight());
+                    bitmap.copyPixelsFromBuffer(buffer);
+
+                    Matrix matrix = new Matrix();
+                    matrix.postRotate(mCameraRotation);
+                    final Bitmap bitmap_rot = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+
+                    int[] arr = mFaceAnalysis.detect(bitmap_rot);
+
+                    Log.e(TAG, "DETECT DONE\n");
+                    getActivity().runOnUiThread(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+
+                                mInfoView.setImageBitmap(bitmap_rot);
+                                Log.e(TAG, "COMPLETED\n");
+                            }
+                        }
+                    );
 
             } catch (Exception e) {
                 e.printStackTrace();
