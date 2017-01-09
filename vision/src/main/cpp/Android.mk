@@ -15,6 +15,11 @@ LOCAL_C_INCLUDES += ${OPENCV_ANDROID_SDK}/sdk/native/jni/include
 DLIB_SDK_PATH := ${LOCAL_PATH}/../../../../dlib
 LOCAL_C_INCLUDES += ${DLIB_SDK_PATH}
 
+# reference: https://developer.android.com/ndk/guides/cpu-arm-neon.html
+ifeq ($(TARGET_ARCH_ABI),$(filter $(TARGET_ARCH_ABI), armeabi-v7a x86))
+    LOCAL_ARM_NEON  := true
+endif # TARGET_ARCH_ABI == armeabi-v7a || x86
+
 # ADD DLIB
 LOCAL_SRC_FILES += \
     ${DLIB_SDK_PATH}/dlib/base64/base64_kernel_1.cpp \
