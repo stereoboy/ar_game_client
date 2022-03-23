@@ -327,7 +327,7 @@ public class CameraViewFragment extends Fragment {
             }
 
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBA_8888, 2);
+            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBX_8888, 2);
 
             mImageReader.setOnImageAvailableListener(mReaderListener, mBackgroundHandler);
 
