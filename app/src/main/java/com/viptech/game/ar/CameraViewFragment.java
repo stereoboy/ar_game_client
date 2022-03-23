@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -28,6 +29,7 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -153,7 +155,7 @@ public class CameraViewFragment extends Fragment {
     private static final int REQUEST_CODE_CAMERA = 333;
 
     private void openCameraIfPossible(int width, int height) {
-        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (mPermissionsGranted == PackageManager.PERMISSION_GRANTED) {
                 openCamera(width, height);
             }
@@ -198,6 +200,16 @@ public class CameraViewFragment extends Fragment {
                 Log.e(TAG, "cameraID: "+ cameraID);
                 CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
 
+                //-----------------------------------------------------------------------------------------------------------
+                // reference: https://www.editcode.net/forum.php?mod=viewthread&tid=254613&extra=page%3D1&page=1&mobile=2
+                int max_count = characteristics.get(CameraCharacteristics.STATISTICS_INFO_MAX_FACE_COUNT);
+                int modes [] = characteristics.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES);
+                Log.e(TAG, "characteristics.get(CameraCharacteristics.STATISTICS_INFO_MAX_FACE_COUNT) = " + max_count);
+                for (int mode: modes)
+                    Log.e(TAG, "characteristics.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES) = " + mode);
+
+
+
                 // Check Facing
                 Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
                 Log.e(TAG, "facing: " + facing);
@@ -205,6 +217,18 @@ public class CameraViewFragment extends Fragment {
                 StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
                 if (map == null) {
                     continue;
+                }
+
+                int[] inputFormats;
+                //--------------------------------------------------------------------------------------------------
+                // reference: https://developer.android.com/reference/android/hardware/camera2/params/StreamConfigurationMap#getInputFormats()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Log.e(TAG, ">>inputFormat Query");
+                    inputFormats = map.getInputFormats();
+                    for (int format: inputFormats) {
+                        Log.e(TAG, "inputFormat =" + format);
+                    }
+                    Log.e(TAG, "<<inputFormat Query");
                 }
 
                 Size [] sizes = map.getOutputSizes(SurfaceTexture.class);
@@ -387,6 +411,9 @@ public class CameraViewFragment extends Fragment {
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
+
+            Integer mode = mPreviewBuilder.get(CaptureRequest.STATISTICS_FACE_DETECT_MODE);
+            Log.e(TAG, " mPreviewBuilder.get(CaptureRequest.STATISTICS_FACE_DETECT_MODE) = " + mode );
         }
 
         @Override
@@ -401,14 +428,17 @@ public class CameraViewFragment extends Fragment {
         @Override
         public void onCaptureProgressed(CameraCaptureSession session, CaptureRequest request, CaptureResult partialResult) {
             super.onCaptureProgressed(session, request, partialResult);
+            Log.i(TAG, "onCaptureProgressed");
         }
 
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
+            Log.i(TAG, "onCaptureCompleted");
             result.getFrameNumber();
             Integer mode = result.get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
             Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
+            Log.e(TAG, " mode : " + mode );
             if(faces != null && mode != null)
             {
                 Log.e(TAG, "faces : " + faces.length + " , mode : " + mode );
@@ -633,9 +663,9 @@ public class CameraViewFragment extends Fragment {
         // reference: https://developer.android.com/training/permissions/requesting#java
         // reference: https://stackoverflow.com/questions/3423754/retrieving-android-api-version-programmatically
         // reference: https://github.com/mjohn123/Camera2APIM
-        Log.i(TAG, "[AR:INFO] Device API Level: " + android.os.Build.VERSION.SDK_INT);
+        Log.i(TAG, "[AR:INFO] Device API Level: " + Build.VERSION.SDK_INT);
 
-        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             mPermissionsGranted = ContextCompat.checkSelfPermission(this.getContext(), Manifest.permission.CAMERA);
             if (mPermissionsGranted == PackageManager.PERMISSION_DENIED) {
                 ActivityCompat.requestPermissions(this.getActivity(), new String[]{Manifest.permission.CAMERA}, REQUEST_CODE_CAMERA);
