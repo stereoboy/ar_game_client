@@ -1,7 +1,9 @@
 package com.viptech.game.ar;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -29,8 +31,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
+import android.support.v4.content.ContextCompat;
 import android.util.Log;
 import android.util.Size;
 import android.view.LayoutInflater;
@@ -123,7 +128,7 @@ public class CameraViewFragment extends Fragment {
                                               int height) {
             // TODO Auto-generated method stub
             Log.i(TAG, "onSurfaceTextureAvailable()");
-            openCamera(width, height);
+            openCameraIfPossible(width, height);
         }
     };
 
@@ -140,8 +145,42 @@ public class CameraViewFragment extends Fragment {
     //private Size mTargetSize = new Size(720, 480);
     private Size mTargetSize = new Size(1280, 960);
 
+    //--------------------------------------------------------------------------------
+    // reference: https://developer.android.com/training/permissions/requesting#java
+    // reference: https://stackoverflow.com/questions/3423754/retrieving-android-api-version-programmatically
+    // reference: https://github.com/mjohn123/Camera2APIM
+    private int mPermissionsGranted = PackageManager.PERMISSION_DENIED;
+    private static final int REQUEST_CODE_CAMERA = 333;
+
+    private void openCameraIfPossible(int width, int height) {
+        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
+            if (mPermissionsGranted == PackageManager.PERMISSION_GRANTED) {
+                openCamera(width, height);
+            }
+            else
+                Log.e(TAG, "No Permission, couldn't open camera.");
+        }
+        else { // old-typed permission granted
+            openCamera(width, height);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode) {
+            case REQUEST_CODE_CAMERA:
+                mPermissionsGranted = PackageManager.PERMISSION_GRANTED;
+                break;
+
+            default:
+                break;
+        }
+    }
+
     private void openCamera(int width, int height)
     {
+        Log.i(TAG, ">> openCamera(" + width + "," + height + ")");
         final Activity activity = getActivity();
         final CameraManager manager = (CameraManager) activity.getSystemService(Context.CAMERA_SERVICE);
         try{
@@ -153,6 +192,8 @@ public class CameraViewFragment extends Fragment {
                     StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
                     mPreviewSize = map.getOutputSizes(SurfaceTexture.class)[0];
                 }*/
+
+            Log.e(TAG, "=============================================================");
             for (String cameraID : manager.getCameraIdList()) {
                 Log.e(TAG, "cameraID: "+ cameraID);
                 CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
@@ -175,6 +216,7 @@ public class CameraViewFragment extends Fragment {
                 int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
                 Log.e(TAG, "CameraOrientation: " + sensorOrientation);
             }
+            Log.e(TAG, "=============================================================");
 
             for (String cameraID : manager.getCameraIdList()) {
                 CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
@@ -241,6 +283,8 @@ public class CameraViewFragment extends Fragment {
         finally {
 
         }
+
+        Log.i(TAG, "<< openCamera()");
     }
 
     private void closeCamera() {
@@ -584,6 +628,19 @@ public class CameraViewFragment extends Fragment {
         }
 
         this.mFaceAnalysis = new FaceAnalysis(getActivity().getAssets(), 1);
+
+        //--------------------------------------------------------------------------------
+        // reference: https://developer.android.com/training/permissions/requesting#java
+        // reference: https://stackoverflow.com/questions/3423754/retrieving-android-api-version-programmatically
+        // reference: https://github.com/mjohn123/Camera2APIM
+        Log.i(TAG, "[AR:INFO] Device API Level: " + android.os.Build.VERSION.SDK_INT);
+
+        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
+            mPermissionsGranted = ContextCompat.checkSelfPermission(this.getContext(), Manifest.permission.CAMERA);
+            if (mPermissionsGranted == PackageManager.PERMISSION_DENIED) {
+                ActivityCompat.requestPermissions(this.getActivity(), new String[]{Manifest.permission.CAMERA}, REQUEST_CODE_CAMERA);
+            }
+        }
     }
 
     @Override
