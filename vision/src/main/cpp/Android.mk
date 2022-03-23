@@ -6,14 +6,14 @@ OPENCV_CAMERA_MODULES := off
 #OPENCV_INSTALL_MODULES := off
 OPENCV_LIB_TYPE := STATIC
 
-OPENCV_ANDROID_SDK := ${LOCAL_PATH}/../../../../OpenCV-android-sdk
+OPENCV_ANDROID_SDK := ${LOCAL_PATH}/../../../../opencv-4_5_5-android-sdk/OpenCV-android-sdk
 
 include ${OPENCV_ANDROID_SDK}/sdk/native/jni/OpenCV.mk
 
 LOCAL_C_INCLUDES += ${OPENCV_ANDROID_SDK}/sdk/native/jni/include
 
-DLIB_SDK_PATH := ${LOCAL_PATH}/../../../../dlib
-LOCAL_C_INCLUDES += ${DLIB_SDK_PATH}
+DLIB_SDK_PATH := ../../../../dlib
+LOCAL_C_INCLUDES += ${LOCAL_PATH}/../../../../dlib
 
 # reference: https://developer.android.com/ndk/guides/cpu-arm-neon.html
 ifeq ($(TARGET_ARCH_ABI),$(filter $(TARGET_ARCH_ABI), armeabi-v7a x86))
@@ -37,7 +37,6 @@ LOCAL_SRC_FILES += \
     ${DLIB_SDK_PATH}/dlib/entropy_encoder/entropy_encoder_kernel_1.cpp \
     ${DLIB_SDK_PATH}/dlib/entropy_encoder/entropy_encoder_kernel_2.cpp \
 
-
 LOCAL_SRC_FILES += \
     ${DLIB_SDK_PATH}/dlib/threads/multithreaded_object_extension.cpp \
     ${DLIB_SDK_PATH}/dlib/threads/threaded_object_extension.cpp \
@@ -48,9 +47,9 @@ LOCAL_SRC_FILES += \
     ${DLIB_SDK_PATH}/dlib/threads/async.cpp. \
 
 
-LOCAL_SRC_FILES += \
-    ${DLIB_SDK_PATH}/dlib/dnn/cpu_dlib.cpp.\
-    ${DLIB_SDK_PATH}/dlib/dnn/tensor_tools.cpp.\
+#LOCAL_SRC_FILES += \
+    ${DLIB_SDK_PATH}/dlib/dnn/cpu_dlib.cpp \
+    ${DLIB_SDK_PATH}/dlib/dnn/tensor_tools.cpp \
 
 
 LOCAL_MODULE := face_analysis

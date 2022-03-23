@@ -11,13 +11,16 @@
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
 
+#if 0 // not needed now with NDK r21
 #include <cmath>
+// reference: https://stackoverflow.com/questions/22922961/c11-cmath-functions-not-in-std-namespace-for-android-ndk-w-gcc-4-8-or-clang-3
 namespace std {
 
     double round(double in){
         return ceil(in + 0.5);
     }
 }
+#endif
 
 #include <dlib/opencv/cv_image.h>
 #include <dlib/image_loader/load_image.h>
