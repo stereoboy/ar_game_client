@@ -471,9 +471,10 @@ public class CameraViewFragment extends Fragment {
 
             try {
 
-                if (mFaces != null && mFaces.length > 0 )
+                Image.Plane[] planes = image.getPlanes();
+                if (planes.length > 0 && mFaces != null && mFaces.length > 0 )
                 {
-                    Image.Plane plane = image.getPlanes()[0];
+                    Image.Plane plane = planes[0];
                     int bpp = 4;
                     ByteBuffer buffer = plane.getBuffer();
                     buffer.rewind();
