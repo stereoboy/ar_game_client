@@ -39,6 +39,7 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.LayoutInflater;
 import android.view.Surface;
@@ -231,6 +232,15 @@ public class CameraViewFragment extends Fragment {
                     Log.e(TAG, "<<inputFormat Query");
                 }
 
+                int[] outputFormats;
+                //--------------------------------------------------------------------------------------------------
+                Log.e(TAG, ">>outputFormats Query");
+                outputFormats = map.getOutputFormats();
+                for (int format: outputFormats) {
+                    Log.e(TAG, "outputFormats =" + format);
+                }
+                Log.e(TAG, "<<outputFormats Query");
+
                 Size [] sizes = map.getOutputSizes(SurfaceTexture.class);
                 for( Size size : sizes)
                 {
@@ -351,7 +361,8 @@ public class CameraViewFragment extends Fragment {
             }
 
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBX_8888, 2);
+            mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.YUV_420_888, 2);
+            //mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), PixelFormat.RGBX_8888, 2);
 
             mImageReader.setOnImageAvailableListener(mReaderListener, mBackgroundHandler);
 
@@ -454,9 +465,100 @@ public class CameraViewFragment extends Fragment {
     };
 
     private ImageReader mImageReader = null;
-    private int align(int x)
+    private int align(int x, int val)
     {
-        return (x + 4 - (x%4));
+        return (x + val - (x%val));
+    }
+
+    //
+    // reference: https://blog.minhazav.dev/how-to-convert-yuv-420-sp-android.media.Image-to-Bitmap-or-jpeg/
+    //
+    Bitmap yuv420ToBitmap(Image image, int x_offset, int y_offset, int width, int height) {
+        if (image.getFormat() != ImageFormat.YUV_420_888) {
+            throw new IllegalArgumentException("Invalid image format");
+        }
+
+        int imageWidth = image.getWidth();
+        int imageHeight = image.getHeight();
+        // ARGB array needed by Bitmap static factory method I use below.
+        int[] argbArray = new int[imageWidth * imageHeight];
+        ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+        yBuffer.position(0);
+
+        // A YUV Image could be implemented with planar or semi planar layout.
+        // A planar YUV image would have following structure:
+        // YYYYYYYYYYYYYYYY
+        // ................
+        // UUUUUUUU
+        // ........
+        // VVVVVVVV
+        // ........
+        //
+        // While a semi-planar YUV image would have layout like this:
+        // YYYYYYYYYYYYYYYY
+        // ................
+        // UVUVUVUVUVUVUVUV   <-- Interleaved UV channel
+        // ................
+        // This is defined by row stride and pixel strides in the planes of the
+        // image.
+
+        // Plane 1 is always U & plane 2 is always V
+        // https://developer.android.com/reference/android/graphics/ImageFormat#YUV_420_888
+        ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
+        uBuffer.position(0);
+        ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
+        vBuffer.position(0);
+
+        // The U/V planes are guaranteed to have the same row stride and pixel
+        // stride.
+        int yRowStride = image.getPlanes()[0].getRowStride();
+        int yPixelStride = image.getPlanes()[0].getPixelStride();
+        int uvRowStride = image.getPlanes()[1].getRowStride();
+        int uvPixelStride = image.getPlanes()[1].getPixelStride();
+
+        int r, g, b;
+        int yValue, uValue, vValue;
+
+        Bitmap bitmap = Bitmap.createBitmap(imageWidth, imageHeight, Bitmap.Config.ARGB_8888);
+        Range<Integer> range = Range.create(0, 255);
+
+        for (int y = y_offset; y < y_offset + height; ++y) {
+            for (int x = x_offset; x < x_offset + width; ++x) {
+                int yIndex = (y * yRowStride) + (x * yPixelStride);
+                // Y plane should have positive values belonging to [0...255]
+                yValue = (yBuffer.get(yIndex) & 0xff);
+
+                int uvx = x / 2;
+                int uvy = y / 2;
+                // U/V Values are subsampled i.e. each pixel in U/V chanel in a
+                // YUV_420 image act as chroma value for 4 neighbouring pixels
+                int uvIndex = (uvy * uvRowStride) +  (uvx * uvPixelStride);
+
+                // U/V values ideally fall under [-0.5, 0.5] range. To fit them into
+                // [0, 255] range they are scaled up and centered to 128.
+                // Operation below brings U/V values to [-128, 127].
+                uValue = (uBuffer.get(uvIndex) & 0xff) - 128;
+                vValue = (vBuffer.get(uvIndex) & 0xff) - 128;
+
+                // Compute RGB values per formula above.
+                r = (int) (yValue + 1.370705f * vValue);
+                g = (int) (yValue - (0.698001f * vValue) - (0.337633f * uValue));
+                b = (int) (yValue + 1.732446f * uValue);
+                r = range.clamp(r);
+                g = range.clamp(g);
+                b = range.clamp(b);
+
+                // Use 255 for alpha value, no transparency. ARGB values are
+                // positioned in each byte of a single 4 byte integer
+                // [AAAAAAAARRRRRRRRGGGGGGGGBBBBBBBB]
+                int argbIndex = y * imageWidth + x;
+                argbArray[argbIndex]
+                        = (255 << 24) | (r & 255) << 16 | (g & 255) << 8 | (b & 255);
+            }
+        }
+
+        bitmap.setPixels(argbArray, 0, imageWidth, 0, 0, imageWidth, imageHeight);
+        return bitmap;
     }
 
     private ImageReader.OnImageAvailableListener mReaderListener = new ImageReader.OnImageAvailableListener() {
@@ -471,20 +573,24 @@ public class CameraViewFragment extends Fragment {
 
             try {
 
+                Log.i(TAG, "mActiveArraySize.width()xmActiveArraySize.height()="+mActiveArraySize.width() +"x" + mActiveArraySize.height());
+                Log.i(TAG, "imageReader.getImageFormat()=" + imageReader.getImageFormat());
+
                 Image.Plane[] planes = image.getPlanes();
+                Log.i(TAG, "planes.length = " + planes.length);
                 if (planes.length > 0 && mFaces != null && mFaces.length > 0 )
                 {
                     Image.Plane plane = planes[0];
                     int bpp = 4;
                     ByteBuffer buffer = plane.getBuffer();
                     buffer.rewind();
-                    int width = plane.getRowStride()/4;
+                    int width = plane.getRowStride()/plane.getPixelStride();
                     int height = buffer.capacity()/plane.getRowStride();
 
                     Rect face = mFaces[0].getBounds();
                     int x = face.left*width/mActiveArraySize.width();
                     int y = face.top*height/mActiveArraySize.height();
-                    int w = align(face.width()*width/mActiveArraySize.width());
+                    int w = align(face.width()*width/mActiveArraySize.width(), 4);
                     int h = face.height()*height/mActiveArraySize.height();
 
                     x -= w*0.4;
@@ -545,6 +651,117 @@ public class CameraViewFragment extends Fragment {
 
                         // Log.i(TAG, "test : arr[10] = " + arr[10]);
                     }
+                } else if (planes.length > 0 && imageReader.getImageFormat() == PixelFormat.RGBX_8888) {
+
+                    Log.w(TAG, "TEST CODE");
+                    Image.Plane plane = planes[0];
+                    ByteBuffer buffer = plane.getBuffer();
+                    buffer.rewind();
+                    int width = plane.getRowStride()/plane.getPixelStride();
+                    int height = buffer.capacity()/plane.getRowStride();
+
+                    Log.i(TAG, "widthxheight=" + width + "x" + height);
+                    Log.i(TAG, "plane.getRowStride()=" + plane.getRowStride() + ", plane.getPixelStride()=" + plane.getPixelStride());
+
+                    Rect face = new Rect(0, 0, 300, 300);
+                    int x = face.left;
+                    int y = face.top;
+                    int w = align(face.width(), 4);
+                    int h = face.height();
+
+                    //x -= w*0.4;
+                    //y -= h*0.2;
+                    //w = (int) (w*1.8);
+                    //h = (int) (h*1.4);
+
+                    // Check margin for face point detection
+                    if (x >= 0 && y >= 0 && (x + w) < width && (y + h) < height) {
+                        Log.i(TAG, "(" + x + "," + y + "," + w + "," + h + ")");
+
+
+                        //byte[] bytes = new byte[buffer.remaining()];
+                        Log.i(TAG, "buffer.remaining():" + buffer.remaining());
+                        Log.i(TAG, "buffer.capacity():" + buffer.capacity());
+                        //buffer.get(bytes);
+
+                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                        Log.i(TAG, "Bitmap: " + bitmap.getWidth() + "x" + bitmap.getHeight());
+                        bitmap.copyPixelsFromBuffer(buffer);
+
+                        Bitmap face_bmp = Bitmap.createBitmap(bitmap, x, y, w, h);
+
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(mCameraRotation);
+                        if (mTargetFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+                            matrix.postScale(1, -1, h, w);
+                        }
+                        final Bitmap face_bmp_rot = Bitmap.createBitmap(face_bmp, 0, 0, face_bmp.getWidth(), face_bmp.getHeight(), matrix, true);
+
+
+                        getActivity().runOnUiThread(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+
+                                        mInfoView.setImageBitmap(face_bmp_rot);
+                                    }
+                                }
+                        );
+                    }    //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                } else if (planes.length > 0 && imageReader.getImageFormat() == ImageFormat.YUV_420_888) {
+
+                    Log.w(TAG, "TEST CODE");
+                    Image.Plane plane = planes[0];
+                    int bpp = 4;
+                    ByteBuffer buffer = plane.getBuffer();
+                    buffer.rewind();
+                    int width = plane.getRowStride()/plane.getPixelStride();
+                    int height = buffer.capacity()/plane.getRowStride();
+
+                    Log.i(TAG, "widthxheight=" + width + "x" + height);
+                    Log.i(TAG, "plane.getRowStride()=" + plane.getRowStride() + ", plane.getPixelStride()=" + plane.getPixelStride());
+
+                    Rect face = new Rect(0, 0, 150, 150);
+                    int x = face.left;
+                    int y = face.top;
+                    int w = align(face.width(), 4);
+                    int h = face.height();
+
+                    // Check margin for face point detection
+                    if (x >= 0 && y >= 0 && (x + w) < width && (y + h) < height) {
+                        Log.i(TAG, "(" + x + "," + y + "," + w + "," + h + ")");
+
+                        //byte[] bytes = new byte[buffer.remaining()];
+                        Log.i(TAG, "buffer.remaining():" + buffer.remaining());
+                        Log.i(TAG, "buffer.capacity():" + buffer.capacity());
+                        //buffer.get(bytes);
+/*
+                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                        Log.i(TAG, "Bitmap: " + bitmap.getWidth() + "x" + bitmap.getHeight());
+                        bitmap.copyPixelsFromBuffer(buffer);
+*/
+                        Bitmap bitmap = yuv420ToBitmap(image, x, y, w, h);
+
+                        Bitmap face_bmp = Bitmap.createBitmap(bitmap, x, y, w, h);
+
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(mCameraRotation);
+                        if (mTargetFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+                            matrix.postScale(1, -1, h, w);
+                        }
+                        final Bitmap face_bmp_rot = Bitmap.createBitmap(face_bmp, 0, 0, face_bmp.getWidth(), face_bmp.getHeight(), matrix, true);
+
+
+                        getActivity().runOnUiThread(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+
+                                        mInfoView.setImageBitmap(face_bmp_rot);
+                                    }
+                                }
+                        );
+                    }    //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
